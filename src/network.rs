@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use futures::Stream;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time;
-use tonic::{Request, transport::Certificate};
+use tonic::{Request, Response, transport::Certificate};
 use tonic::metadata::MetadataValue;
 use tonic::transport::{Channel, ClientTlsConfig, Identity};
 use uuid::Uuid;
@@ -23,6 +23,7 @@ pub struct Msg {
 }
 
 pub struct Server {
+    strict: bool,
     peer_id: Uuid,
     ca: Certificate,
     identity: Identity,
@@ -36,6 +37,7 @@ impl Server {
         let (tx, rx) = channel(10);
 
         Self {
+            strict: false,
             ca,
             identity,
             peer_id: Uuid::new_v4(),
@@ -80,6 +82,37 @@ impl Server {
         Ok(outbound)
     }
 
+    fn new_request<T>(&self, body: T) -> Result<Request<T>> {
+        let mut request = Request::new(body);
+        let metadata = request.metadata_mut();
+
+        // Sets the Peer ID as described in: https://nuts-foundation.gitbook.io/drafts/rfc/rfc005-distributed-network-using-grpc#6-1-peer-identification
+        metadata.insert("peerid", MetadataValue::from_str(&self.peer_id.to_string())?);
+
+        // Sets the protocol version described in: https://nuts-foundation.gitbook.io/drafts/rfc/rfc005-distributed-network-using-grpc#6-4-protocol-version
+        metadata.insert("version", MetadataValue::from_static("1"));
+
+        Ok(request)
+    }
+
+    fn parse_metadata<'r, T>(&self, response: &'r Response<T>) -> Result<(Uuid, &'r str)> {
+        let metadata = response.metadata();
+        let peer_id = metadata.get("peerid")
+            .ok_or_else(|| anyhow!("unable to connect to peer because of missing peer ID"))?
+            .to_str()?;
+
+        // It looks like the protocol version header is not implemented yet, so when strict isn't enabled just return 1 instead
+        if !self.strict {
+            return Ok((Uuid::parse_str(peer_id)?, "1"));
+        }
+
+        let version = metadata.get("version")
+            .ok_or_else(|| anyhow!("peer didn't provide the protocol version"))?
+            .to_str()?;
+
+        Ok((Uuid::parse_str(peer_id)?, version))
+    }
+
     pub async fn connect_to_peer(&mut self, addr: String) -> Result<()> {
         log::info!(target: "network", "connecting to {}..", addr);
 
@@ -87,21 +120,18 @@ impl Server {
         let tx = self.tx.clone();
 
         // Create the initial connection request
-        let mut request = Request::new(self.client_stream()?);
-
-        // Sets the Peer ID as described in: https://nuts-foundation.gitbook.io/drafts/rfc/rfc005-distributed-network-using-grpc#6-1-peer-identification
-        request.metadata_mut().insert(
-            "peerid",
-            MetadataValue::from_str(&self.peer_id.to_string())?,
-        );
+        let request = self.new_request(self.client_stream()?)?;
 
         // Connect to the peer, get it's peer ID and start the message loop in a task
-        let response = client.connect_method(request).await?;
-        let peer_id = match response.metadata().get("peerid") {
-            Some(peer_id) => peer_id,
-            None => return Err(anyhow!("unable to connect to peer because of missing peer ID")),
-        }.to_str()?;
-        let peer_id = Uuid::parse_str(peer_id)?;
+        let response: Response<_> = client.connect_method(request).await?;
+        let (peer_id, version) = self.parse_metadata(&response)?;
+
+        // Currently only protocol version 1 is supported
+        if version != "1" {
+            log::info!(target: "network", "closing connection to peer '{}' due to invalid protocol version: {}", peer_id, version);
+
+            return Err(anyhow!("invalid protocol version: {}", version));
+        }
 
         tokio::spawn(async move {
             let mut stream = response.into_inner();
