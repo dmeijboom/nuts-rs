@@ -1,8 +1,8 @@
 use clap::Clap;
 
 mod cmd;
+mod proto;
 mod network;
-mod server;
 
 #[derive(Clap)]
 struct Opts {
@@ -23,6 +23,8 @@ enum Cmd {
 #[tokio::main]
 async fn main() {
     let opts = Opts::parse();
+
+    pretty_env_logger::init();
 
     match opts.cmd {
         Cmd::Run(opts) => cmd::run(opts.bootstrap_node)
