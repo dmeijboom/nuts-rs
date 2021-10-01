@@ -13,10 +13,7 @@ pub async fn cmd(bootstrap_node: Vec<String>) -> Result<()> {
     );
     let identity = Identity::from_pem(cert, key);
 
-    let mut server = Server::new(
-        ca,
-        identity,
-    );
+    let mut server = Server::new(ca, identity);
 
     for addr in bootstrap_node {
         server.connect_to_peer(addr).await?;

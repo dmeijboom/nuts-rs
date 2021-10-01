@@ -6,14 +6,21 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+hex = "0.4.3"
+sha2 = "0.9.8"
 log = "0.4.14"
+daggy = "0.7.0"
 prost = "0.8.0"
+bytes = "1.1.0"
+chrono = "0.4.19"
 anyhow = "1.0.44"
 futures = "0.3.17"
 clap = "3.0.0-beta.4"
 async-stream = "0.3.2"
+biscuit = "0.6.0-beta1"
 pretty_env_logger = "0.4.0"
 uuid = { version = "0.8.2", features = ["v4"] }
+serde = { version = "1", features = ["derive"] }
 tonic = { version = "0.5.2", features = ["tls"] }
 tokio = { version = "1.12.0", features = ["rt-multi-thread", "time", "fs", "macros", "net"] }
 

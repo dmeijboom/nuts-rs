@@ -1,8 +1,8 @@
 use clap::Clap;
 
 mod cmd;
-mod proto;
 mod network;
+mod proto;
 
 #[derive(Clap)]
 struct Opts {
