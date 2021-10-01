@@ -12,7 +12,7 @@ struct Opts {
 
 #[derive(Clap)]
 struct RunOpts {
-    bootstrap_node: String,
+    bootstrap_node: Vec<String>,
 }
 
 #[derive(Clap)]
