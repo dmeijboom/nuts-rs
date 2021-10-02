@@ -1,58 +1,13 @@
-use std::convert::TryInto;
-use std::fmt::{Debug, Formatter};
-
 use anyhow::{anyhow, Result};
 use biscuit::jwa::SignatureAlgorithm;
 use biscuit::jws::Compact;
 use biscuit::CompactJson;
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
-pub struct Hash([u8; 32]);
+use crate::network::Hash;
 
-impl Debug for Hash {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
-    }
-}
-
-fn to_fixed(bytes: Vec<u8>) -> Result<[u8; 32]> {
-    let output: Box<[u8; 32]> = bytes
-        .into_boxed_slice()
-        .try_into()
-        .map_err(|_| anyhow!("invalid length for SHA256 based hash"))?;
-
-    Ok(*output)
-}
-
-impl Hash {
-    pub fn new(data: impl AsRef<[u8]>) -> Result<Self> {
-        let mut hasher = Sha256::new();
-
-        hasher.update(data);
-
-        let digest = hasher.finalize();
-
-        Ok(Hash(to_fixed(digest.to_vec())?))
-    }
-
-    pub fn parse(source: Vec<u8>) -> Result<Self> {
-        Ok(Hash(to_fixed(source)?))
-    }
-
-    pub fn parse_hex(source: &[u8]) -> Result<Self> {
-        Self::parse(hex::decode(source)?)
-    }
-}
-
-impl ToString for Hash {
-    fn to_string(&self) -> String {
-        hex::encode(&self.0)
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Transaction {
     pub id: Hash,
     pub data: Vec<u8>,
@@ -63,6 +18,29 @@ pub struct Transaction {
     pub sign_key_id: String,
     pub sign_at: NaiveDateTime,
     pub sign_algo: SignatureAlgorithm,
+}
+
+impl Transaction {
+    /// A transaction is considered to be a root transaction if it doesn't have any previous transactions
+    pub fn is_root(&self) -> bool {
+        self.prevs.is_empty()
+    }
+}
+
+impl Default for Transaction {
+    fn default() -> Self {
+        Self {
+            id: Hash::default(),
+            data: vec![],
+            prevs: vec![],
+            payload: Hash::default(),
+            payload_type: "".to_string(),
+            version: 0,
+            sign_key_id: "".to_string(),
+            sign_at: NaiveDateTime::from_timestamp(0, 0),
+            sign_algo: Default::default(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

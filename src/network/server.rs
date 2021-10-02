@@ -9,7 +9,7 @@ use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use tonic::{Request, Response};
 use uuid::Uuid;
 
-use crate::network::Graph;
+use crate::network::{Graph, Transaction};
 use crate::proto::{
     network_client::NetworkClient, network_message::Message, NetworkMessage, TransactionList,
     TransactionListQuery,
@@ -60,14 +60,59 @@ impl Server {
             if let Err(e) = match msg.message {
                 Message::TransactionList(data) => self.handle_transaction_list(data),
                 message => {
-                    log::debug!(target: "network", "ignoring unsupported message: {:?}", message);
+                    log::debug!(target: "nuts::network", "ignoring unsupported message: {:?}", message);
 
                     Ok(())
                 }
             } {
-                log::error!(target: "network", "error handling message for peer '{}': {}", msg.peer_id, e);
+                log::error!(target: "nuts::network", "error handling message for peer '{}': {}", msg.peer_id, e);
             }
         }
+    }
+
+    pub fn handle_transaction_list(&mut self, data: TransactionList) -> Result<()> {
+        // First, parse all transactions
+        let mut transactions = vec![];
+
+        for raw in data.transactions {
+            let repr = String::from_utf8(raw.data)?;
+            let tx = Transaction::parse_unsafe(repr)?;
+
+            transactions.push(tx);
+        }
+
+        // Then, verify if we have a root transaction or that we can get it from another node
+        if self.graph.root().is_none() {
+            let length = transactions.len();
+
+            for (i, tx) in transactions.iter_mut().enumerate() {
+                if !tx.is_root() {
+                    continue;
+                }
+
+                self.graph.add(transactions.remove(i))?;
+                break;
+            }
+
+            // If the size of the transaction list didn't change we weren't able to remove the root transaction
+            if length == transactions.len() {
+                return Err(anyhow!(
+                    "unable to process transaction-list without a root-transaction"
+                ));
+            }
+        }
+
+        // At last, process all the other transactions
+        for tx in transactions {
+            // We already have this transaction so we can skip this
+            if self.graph.find(&tx.id).is_some() {
+                continue;
+            }
+
+            self.graph.add(tx)?;
+        }
+
+        Ok(())
     }
 
     async fn connect(&self, addr: String) -> Result<NetworkClient<Channel>> {
@@ -140,7 +185,7 @@ impl Server {
     }
 
     pub async fn connect_to_peer(&mut self, addr: String) -> Result<()> {
-        log::info!(target: "network", "connecting to {}..", addr);
+        log::info!(target: "nuts::network", "connecting to {}..", addr);
 
         let mut client = self.connect(addr.clone()).await?;
         let tx = self.tx.clone();
@@ -154,7 +199,7 @@ impl Server {
 
         // Currently only protocol version 1 is supported
         if version != "1" {
-            log::info!(target: "network", "closing connection to peer '{}' due to invalid protocol version: {}", peer_id, version);
+            log::info!(target: "nuts::network", "closing connection to peer '{}' due to invalid protocol version: {}", peer_id, version);
 
             return Err(anyhow!("invalid protocol version: {}", version));
         }
@@ -162,7 +207,7 @@ impl Server {
         tokio::spawn(async move {
             let mut stream = response.into_inner();
 
-            log::info!(target: "network", "connected to peer: {}", peer_id);
+            log::info!(target: "nuts::network", "connected to peer: {}", peer_id);
 
             loop {
                 match stream.message().await {
@@ -170,13 +215,13 @@ impl Server {
                         if let Some(network_message) = network_message {
                             if let Some(message) = network_message.message {
                                 if let Err(e) = tx.send(Msg { peer_id, message }).await {
-                                    log::error!(target: "network", "failed to handle message for peer '{}': {}", peer_id, e);
+                                    log::error!(target: "nuts::network", "failed to handle message for peer '{}': {}", peer_id, e);
                                 }
                             }
                         }
                     }
                     Err(e) => {
-                        log::error!(target: "network", "failed to receiver message for peer '{}': {}", peer_id, e)
+                        log::error!(target: "nuts::network", "failed to receiver message for peer '{}': {}", peer_id, e)
                     }
                 }
             }
