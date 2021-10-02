@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use futures::Stream;
+use sled::Db;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time;
 use tonic::metadata::MetadataValue;
@@ -41,18 +42,19 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(ca: Certificate, identity: Identity) -> Self {
+    pub fn new(db: Db, ca: Certificate, identity: Identity) -> Result<Self> {
         let (tx, rx) = channel(10);
+        let graph = Graph::open(db)?;
 
-        Self {
+        Ok(Self {
             strict: false,
             ca,
             identity,
             peer_id: Uuid::new_v4(),
             tx,
             rx,
-            graph: Graph::new(),
-        }
+            graph,
+        })
     }
 
     pub async fn run(mut self) {

@@ -2,9 +2,19 @@ use std::convert::TryInto;
 use std::fmt::{Debug, Display, Formatter};
 
 use anyhow::{anyhow, Result};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-#[derive(Clone, Default)]
+fn to_fixed(bytes: Vec<u8>) -> Result<[u8; 32]> {
+    let output: Box<[u8; 32]> = bytes
+        .into_boxed_slice()
+        .try_into()
+        .map_err(|_| anyhow!("invalid length for SHA256 based hash"))?;
+
+    Ok(*output)
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Hash([u8; 32]);
 
 impl Debug for Hash {
@@ -19,13 +29,16 @@ impl Display for Hash {
     }
 }
 
-fn to_fixed(bytes: Vec<u8>) -> Result<[u8; 32]> {
-    let output: Box<[u8; 32]> = bytes
-        .into_boxed_slice()
-        .try_into()
-        .map_err(|_| anyhow!("invalid length for SHA256 based hash"))?;
+impl PartialEq for Hash {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.eq(&other.0)
+    }
+}
 
-    Ok(*output)
+impl AsRef<[u8]> for Hash {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
 }
 
 impl Hash {
@@ -45,11 +58,5 @@ impl Hash {
 
     pub fn parse_hex(source: &[u8]) -> Result<Self> {
         Self::parse(hex::decode(source)?)
-    }
-}
-
-impl PartialEq for Hash {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.eq(&other.0)
     }
 }

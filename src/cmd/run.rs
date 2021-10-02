@@ -5,6 +5,7 @@ use tonic::transport::{Certificate, Identity};
 use crate::network::Server;
 
 pub async fn cmd(bootstrap_node: Vec<String>) -> Result<()> {
+    let db = sled::open(".nuts")?;
     let ca_pem = fs::read("tls/truststore.pem").await?;
     let ca = Certificate::from_pem(ca_pem);
     let (cert, key) = (
@@ -12,8 +13,7 @@ pub async fn cmd(bootstrap_node: Vec<String>) -> Result<()> {
         fs::read("tls/localhost.key").await?,
     );
     let identity = Identity::from_pem(cert, key);
-
-    let mut server = Server::new(ca, identity);
+    let mut server = Server::new(db, ca, identity)?;
 
     for addr in bootstrap_node {
         server.connect_to_peer(addr).await?;
