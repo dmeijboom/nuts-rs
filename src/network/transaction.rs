@@ -1,11 +1,12 @@
 use anyhow::{anyhow, Result};
 use biscuit::jwa::SignatureAlgorithm;
-use biscuit::jws::Compact;
+use biscuit::jws::{Compact, Header};
 use biscuit::CompactJson;
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
 use crate::network::Hash;
+use crate::pki::Key;
 
 #[derive(Debug, Clone)]
 pub struct Transaction {
@@ -15,7 +16,8 @@ pub struct Transaction {
     pub payload: Hash,
     pub payload_type: String,
     pub version: usize,
-    pub sign_key_id: String,
+    pub key: Option<Key>,
+    pub key_id: String,
     pub sign_at: NaiveDateTime,
     pub sign_algo: SignatureAlgorithm,
 }
@@ -36,7 +38,8 @@ impl Default for Transaction {
             payload: Hash::default(),
             payload_type: "".to_string(),
             version: 0,
-            sign_key_id: "".to_string(),
+            key: None,
+            key_id: "".to_string(),
             sign_at: NaiveDateTime::from_timestamp(0, 0),
             sign_algo: Default::default(),
         }
@@ -54,6 +57,29 @@ struct TransactionHeader {
 }
 
 impl CompactJson for TransactionHeader {}
+
+fn parse_key(header: &Header<TransactionHeader>) -> Result<(Option<Key>, String)> {
+    Ok(match &header.registered.key_id {
+        Some(key_id) => (None, key_id.clone()),
+        None => {
+            let key = header
+                .registered
+                .web_key
+                .clone()
+                .ok_or_else(|| anyhow!("unable to add transaction without key or key ID"))?;
+
+            // Get the key ID either from the key itself or the from the key ID header
+            let key_id = key
+                .common
+                .key_id
+                .clone()
+                .or_else(|| header.registered.key_id.clone())
+                .ok_or_else(|| anyhow!("missing ID for transaction signing key"))?;
+
+            (Some(key), key_id)
+        }
+    })
+}
 
 impl Transaction {
     /// Parses a transaction from the compact JWS representation without verifying the signature
@@ -82,17 +108,10 @@ impl Transaction {
         let payload_type = header
             .registered
             .content_type
+            .clone()
             .ok_or_else(|| anyhow!("transaction is missing the payload-type"))?;
         let sign_at = NaiveDateTime::from_timestamp(header.private.sign_time, 0);
-
-        let sign_key_id = match header.registered.key_id {
-            Some(key_id) => Ok(key_id),
-            None => header
-                .registered
-                .web_key
-                .and_then(|key| key.common.key_id)
-                .ok_or_else(|| anyhow!("unable to parse key ID from transaction")),
-        }?;
+        let (key, key_id) = parse_key(&header)?;
 
         let mut prevs = vec![];
 
@@ -110,7 +129,8 @@ impl Transaction {
             payload,
             payload_type,
             version: header.private.version,
-            sign_key_id,
+            key,
+            key_id,
             sign_at,
             sign_algo: header.registered.algorithm,
         })

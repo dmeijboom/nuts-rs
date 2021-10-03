@@ -3,6 +3,7 @@ use std::sync::mpsc::channel;
 
 use anyhow::{anyhow, Result};
 use daggy::{Dag, NodeIndex, Walker};
+use rmp_serde::{decode, encode};
 use serde::{Deserialize, Serialize};
 use sled::Db;
 
@@ -58,7 +59,7 @@ impl Graph {
 
         for record in tree.iter() {
             let (_, value) = record?;
-            let node: Node = bincode::deserialize(value.as_ref())?;
+            let node: Node = decode::from_read(value.as_ref())?;
             let tx = Transaction::parse_unsafe(node.tx_data)?;
 
             transactions.push((node.idx, tx));
@@ -116,7 +117,7 @@ impl Graph {
 
         tree.insert(
             tx_id.clone(),
-            bincode::serialize(&Node {
+            encode::to_vec(&Node {
                 // This shouldn't overflow as the index type used is `u32`
                 idx: idx.index() as u32,
                 tx_id,

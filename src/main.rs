@@ -2,6 +2,7 @@ use clap::Clap;
 
 mod cmd;
 mod network;
+mod pki;
 mod proto;
 
 #[derive(Clap)]

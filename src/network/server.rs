@@ -11,6 +11,7 @@ use tonic::{Request, Response};
 use uuid::Uuid;
 
 use crate::network::{Graph, Transaction};
+use crate::pki::KeyStore;
 use crate::proto::{
     network_client::NetworkClient, network_message::Message, NetworkMessage, TransactionList,
     TransactionListQuery,
@@ -36,6 +37,7 @@ pub struct Server {
     ca: Certificate,
     identity: Identity,
     graph: Graph,
+    key_store: KeyStore,
 
     rx: Receiver<Msg>,
     tx: Sender<Msg>,
@@ -44,7 +46,7 @@ pub struct Server {
 impl Server {
     pub fn new(db: Db, ca: Certificate, identity: Identity) -> Result<Self> {
         let (tx, rx) = channel(10);
-        let graph = Graph::open(db)?;
+        let graph = Graph::open(db.clone())?;
 
         Ok(Self {
             strict: false,
@@ -54,6 +56,7 @@ impl Server {
             tx,
             rx,
             graph,
+            key_store: KeyStore::new(db),
         })
     }
 
@@ -70,6 +73,20 @@ impl Server {
                 log::error!(target: "nuts::network", "error handling message for peer '{}': {}", msg.peer_id, e);
             }
         }
+    }
+
+    fn add_transaction(&mut self, tx: Transaction) -> Result<()> {
+        // Add the key to the store if it doesn't exists
+        if !self.key_store.contains(&tx.key_id)? {
+            if let Some(key) = tx.key.clone() {
+                self.key_store.add(tx.key_id.clone(), key)?;
+            }
+        }
+
+        // Add the transaction to the graph
+        self.graph.add(tx)?;
+
+        Ok(())
     }
 
     pub fn handle_transaction_list(&mut self, data: TransactionList) -> Result<()> {
@@ -92,7 +109,7 @@ impl Server {
                     continue;
                 }
 
-                self.graph.add(transactions.remove(i))?;
+                self.add_transaction(transactions.remove(i))?;
                 break;
             }
 
@@ -111,7 +128,7 @@ impl Server {
                 continue;
             }
 
-            self.graph.add(tx)?;
+            self.add_transaction(tx)?;
         }
 
         Ok(())
