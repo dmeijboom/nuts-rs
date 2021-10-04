@@ -56,7 +56,7 @@ impl Server {
             tx,
             rx,
             graph,
-            key_store: KeyStore::new(db),
+            key_store: KeyStore::open(db)?,
         })
     }
 
@@ -95,6 +95,7 @@ impl Server {
 
         for raw in data.transactions {
             let repr = String::from_utf8(raw.data)?;
+            // @TODO: use 'parse' here to verify the signature
             let tx = Transaction::parse_unsafe(repr)?;
 
             transactions.push(tx);

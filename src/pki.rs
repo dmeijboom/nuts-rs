@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use biscuit::jwk::JWKSet;
 use biscuit::{jwk::JWK, Empty};
 use rmp_serde::{decode, encode};
 use sled::Db;
@@ -7,11 +8,26 @@ pub type Key = JWK<Empty>;
 
 pub struct KeyStore {
     db: Db,
+    jwk_set: JWKSet<Empty>,
 }
 
 impl KeyStore {
-    pub fn new(db: Db) -> Self {
-        Self { db }
+    pub fn open(db: Db) -> Result<Self> {
+        let mut store = Self {
+            db,
+            jwk_set: JWKSet { keys: vec![] },
+        };
+
+        let tree = store.db.open_tree("nuts/keys")?;
+
+        for record in tree.iter() {
+            let (_, value) = record?;
+            let key = decode::from_slice(&value)?;
+
+            store.jwk_set.keys.push(key);
+        }
+
+        Ok(store)
     }
 
     /// Get a key by it's key ID
@@ -43,6 +59,14 @@ impl KeyStore {
 
         tree.insert(id, encode::to_vec(&key)?)?;
 
+        self.jwk_set.keys.push(key);
+
         Ok(())
+    }
+}
+
+impl AsRef<JWKSet<Empty>> for KeyStore {
+    fn as_ref(&self) -> &JWKSet<Empty> {
+        &self.jwk_set
     }
 }

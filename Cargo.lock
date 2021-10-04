@@ -82,7 +82,7 @@ dependencies = [
  "data-encoding",
  "num",
  "once_cell",
- "ring",
+ "ring 0.16.20",
  "serde",
  "serde_json",
 ]
@@ -760,6 +760,7 @@ dependencies = [
  "log",
  "pretty_env_logger",
  "prost",
+ "ring 0.17.0-alpha.10",
  "rmp-serde",
  "serde",
  "sha2",
@@ -1079,6 +1080,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ring"
+version = "0.17.0-alpha.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55ae9a4d2975bdd8254d7bcdd2261be62b42b8920f903ec682b08cdc11b87af2"
+dependencies = [
+ "cc",
+ "libc",
+ "once_cell",
+ "spin",
+ "untrusted",
+ "web-sys",
+ "winapi",
+]
+
+[[package]]
 name = "rmp"
 version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1107,7 +1123,7 @@ checksum = "35edb675feee39aec9c99fa5ff985081995a06d594114ae14cbe797ad7b7a6d7"
 dependencies = [
  "base64",
  "log",
- "ring",
+ "ring 0.16.20",
  "sct",
  "webpki",
 ]
@@ -1130,7 +1146,7 @@ version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b362b83898e0e69f38515b82ee15aa80636befe47c3b6d3d89a911e78fc228ce"
 dependencies = [
- "ring",
+ "ring 0.16.20",
  "untrusted",
 ]
 
@@ -1619,7 +1635,7 @@ version = "0.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8e38c0608262c46d4a56202ebabdeb094cef7e560ca7a226c6bf055188aa4ea"
 dependencies = [
- "ring",
+ "ring 0.16.20",
  "untrusted",
 ]
 
