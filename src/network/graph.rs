@@ -107,7 +107,7 @@ impl Graph {
     pub fn add(&mut self, tx: Transaction) -> Result<NodeIndex<u32>> {
         log::debug!(
             target: "nuts::network",
-            "adding a {}transaction: {}", tx.id, if tx.is_root() { "root " } else { "" },
+            "adding a {}transaction: {}",if tx.is_root() { "root " } else { "" }, tx.id
         );
 
         let tx_id = tx.id.clone();

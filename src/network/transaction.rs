@@ -1,12 +1,17 @@
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::result;
 
+use anyhow::anyhow;
 use biscuit::jwa::SignatureAlgorithm;
 use biscuit::jwk::AlgorithmParameters;
 use biscuit::jws::{Compact, Header, Secret};
 use biscuit::CompactJson;
 use chrono::NaiveDateTime;
+use ecdsa::signature::Verifier;
+use ecdsa::{EncodedPoint, Signature, VerifyingKey};
+use p256::NistP256;
 use serde::{Deserialize, Serialize};
 
 use crate::network::Hash;
@@ -16,6 +21,7 @@ use crate::pki::{Key, KeyStore};
 pub enum ParseError {
     NutsValidationError(String),
     JoseError(biscuit::errors::Error),
+    ECDSAError(ecdsa::Error),
     Other(anyhow::Error),
 }
 
@@ -25,9 +31,10 @@ impl Display for ParseError {
             f,
             "failed to parse transaction: {}",
             match self {
-                ParseError::NutsValidationError(e) => format!("{}", e),
-                ParseError::JoseError(e) => format!("{}", e),
-                ParseError::Other(e) => format!("{}", e),
+                ParseError::NutsValidationError(e) => e.to_string(),
+                ParseError::JoseError(e) => e.to_string(),
+                ParseError::ECDSAError(e) => e.to_string(),
+                ParseError::Other(e) => e.to_string(),
             }
         )
     }
@@ -44,6 +51,12 @@ impl From<biscuit::errors::Error> for ParseError {
 impl From<anyhow::Error> for ParseError {
     fn from(e: anyhow::Error) -> Self {
         ParseError::Other(e)
+    }
+}
+
+impl From<ecdsa::Error> for ParseError {
+    fn from(e: ecdsa::Error) -> Self {
+        ParseError::ECDSAError(e)
     }
 }
 
@@ -194,22 +207,48 @@ impl Transaction {
     pub fn parse(store: &KeyStore, raw: impl AsRef<str>) -> Result<Transaction> {
         let compact: Compact<Vec<u8>, TransactionHeader> = Compact::new_encoded(raw.as_ref());
         let header = compact.unverified_header()?;
-        let compact = match header.registered.web_key {
-            None => compact.decode_with_jwks(store.as_ref(), None)?,
-            Some(key) => compact.decode(
-                &match key.algorithm {
-                    AlgorithmParameters::RSA(rsa) => rsa.jws_public_key_secret(),
-                    AlgorithmParameters::OctetKey(oct) => Secret::Bytes(oct.value.clone()),
-                    _ => {
-                        return Err(biscuit::errors::Error::ValidationError(
-                            biscuit::errors::ValidationError::UnsupportedKeyAlgorithm,
-                        )
-                        .into())
-                    }
-                },
-                header.registered.algorithm,
-            )?,
+        let (key, key_id) = parse_key(&header)?;
+        let key = if let Some(key) = key {
+            key
+        } else {
+            store
+                .get(&key_id)?
+                .ok_or_else(|| anyhow!("unable to find verification key: {}", key_id))?
         };
+        let compact = compact.decode(
+            &match key.algorithm {
+                AlgorithmParameters::RSA(rsa) => rsa.jws_public_key_secret(),
+                AlgorithmParameters::OctetKey(oct) => Secret::Bytes(oct.value),
+                // It seems like `biscuit` doesn't support elliptic curve public key based verifications so instead
+                // we validate the signature up front and return the 'unverified' data if that succeeds
+                AlgorithmParameters::EllipticCurve(params) => {
+                    let point: EncodedPoint<NistP256> = EncodedPoint::from_affine_coordinates(
+                        params.x.as_slice().into(),
+                        params.y.as_slice().into(),
+                        false,
+                    );
+                    let ec_key = VerifyingKey::from_encoded_point(&point)?;
+                    let signature = Signature::try_from(compact.signature()?.as_slice())?;
+                    let components = raw.as_ref().split('.').collect::<Vec<_>>();
+                    let signature_payload = format!("{}.{}", components[0], components[1]);
+
+                    ec_key.verify(signature_payload.as_bytes(), &signature)?;
+
+                    return parse_transaction(
+                        raw.as_ref(),
+                        &compact.unverified_header()?,
+                        &compact.unverified_payload()?,
+                    );
+                }
+                _ => {
+                    return Err(biscuit::errors::Error::ValidationError(
+                        biscuit::errors::ValidationError::UnsupportedKeyAlgorithm,
+                    )
+                    .into())
+                }
+            },
+            header.registered.algorithm,
+        )?;
 
         parse_transaction(raw.as_ref(), compact.header()?, compact.payload()?)
     }

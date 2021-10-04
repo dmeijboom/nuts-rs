@@ -22,7 +22,7 @@ impl KeyStore {
 
         for record in tree.iter() {
             let (_, value) = record?;
-            let key = decode::from_slice(&value)?;
+            let key: JWK<Empty> = decode::from_slice(&value)?;
 
             store.jwk_set.keys.push(key);
         }

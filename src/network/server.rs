@@ -13,8 +13,8 @@ use uuid::Uuid;
 use crate::network::{Graph, Transaction};
 use crate::pki::KeyStore;
 use crate::proto::{
-    network_client::NetworkClient, network_message::Message, NetworkMessage, TransactionList,
-    TransactionListQuery,
+    network_client::NetworkClient, network_message::Message, AdvertHashes, NetworkMessage,
+    TransactionList, TransactionListQuery,
 };
 
 macro_rules! netmsg {
@@ -75,30 +75,48 @@ impl Server {
         }
     }
 
-    fn add_transaction(&mut self, tx: Transaction) -> Result<()> {
-        // Add the key to the store if it doesn't exists
-        if !self.key_store.contains(&tx.key_id)? {
-            if let Some(key) = tx.key.clone() {
-                self.key_store.add(tx.key_id.clone(), key)?;
-            }
-        }
-
-        // Add the transaction to the graph
-        self.graph.add(tx)?;
-
-        Ok(())
-    }
-
     pub fn handle_transaction_list(&mut self, data: TransactionList) -> Result<()> {
         // First, parse all transactions
         let mut transactions = vec![];
+        let mut staged = data.transactions;
 
-        for raw in data.transactions {
-            let repr = String::from_utf8(raw.data)?;
-            // @TODO: use 'parse' here to verify the signature
-            let tx = Transaction::parse_unsafe(repr)?;
+        loop {
+            let before = staged.len();
+            let mut last_error = None;
 
-            transactions.push(tx);
+            'process: for _ in 0..before {
+                let tx_info = staged.remove(0);
+                let repr = std::str::from_utf8(&tx_info.data)?;
+
+                match Transaction::parse(&self.key_store, repr) {
+                    Ok(tx) => {
+                        // Add the key to the store if it doesn't exists
+                        if !self.key_store.contains(&tx.key_id)? {
+                            if let Some(key) = tx.key.clone() {
+                                self.key_store.add(tx.key_id.clone(), key)?;
+                            }
+                        }
+
+                        transactions.push(tx);
+                    }
+                    Err(e) => {
+                        last_error = Some(e);
+                        staged.push(tx_info);
+
+                        continue 'process;
+                    }
+                };
+            }
+
+            if staged.is_empty() {
+                break;
+            }
+
+            // We we're unable to process transactions anymore
+            if before == staged.len() {
+                log::error!(target: "nuts::network", "failed to process the last '{}' transactions: {}", staged.len(), last_error.unwrap());
+                break;
+            }
         }
 
         // Then, verify if we have a root transaction or that we can get it from another node
@@ -110,7 +128,7 @@ impl Server {
                     continue;
                 }
 
-                self.add_transaction(transactions.remove(i))?;
+                self.graph.add(transactions.remove(i))?;
                 break;
             }
 
@@ -129,7 +147,7 @@ impl Server {
                 continue;
             }
 
-            self.add_transaction(tx)?;
+            self.graph.add(tx)?;
         }
 
         Ok(())
@@ -150,7 +168,7 @@ impl Server {
 
     fn client_stream(&self) -> Result<impl Stream<Item = NetworkMessage>> {
         let outbound = async_stream::stream! {
-            let mut interval = time::interval(Duration::from_secs(60));
+            let mut interval = time::interval(Duration::from_secs(2));
 
             // Initially, ask for the complete transaction list
             yield netmsg!(Message::TransactionListQuery(TransactionListQuery {
@@ -158,10 +176,11 @@ impl Server {
             }));
 
             while let _ = interval.tick().await {
-                yield netmsg!(Message::TransactionList(TransactionList {
-                    block_date: 0,
-                    transactions: vec![],
-                }));
+                continue;
+                //yield netmsg!(Message::AdvertHashes(AdvertHashes {
+                //    block_date: 0,
+                //    transactions: vec![],
+                //}));
             }
         };
 
