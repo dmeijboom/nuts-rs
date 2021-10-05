@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Clap;
 
-use cmd::{pki as pki_cmd, run as run_cmd};
+use cmd::{graph as graph_cmd, pki as pki_cmd, run as run_cmd};
 
 mod cmd;
 mod network;
@@ -17,7 +17,8 @@ struct Opts {
 #[derive(Clap)]
 enum Cmd {
     Run(run_cmd::Opts),
-    PKI(pki_cmd::Opts),
+    Pki(pki_cmd::Opts),
+    Graph(graph_cmd::Opts),
 }
 
 #[tokio::main]
@@ -30,7 +31,8 @@ async fn main() -> Result<()> {
 
     match opts.cmd {
         Cmd::Run(opts) => run_cmd::cmd(db, opts).await,
-        Cmd::PKI(opts) => pki_cmd::cmd(db, opts).await,
+        Cmd::Pki(opts) => pki_cmd::cmd(db, opts).await,
+        Cmd::Graph(opts) => graph_cmd::cmd(db, opts).await,
     }?;
 
     Ok(())

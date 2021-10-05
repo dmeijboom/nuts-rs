@@ -75,14 +75,12 @@ impl Server {
         }
     }
 
-    pub fn handle_transaction_list(&mut self, data: TransactionList) -> Result<()> {
-        // First, parse all transactions
+    fn parse_transaction_list(&mut self, data: TransactionList) -> Result<Vec<Transaction>> {
         let mut transactions = vec![];
         let mut staged = data.transactions;
 
         loop {
             let before = staged.len();
-            let mut last_error = None;
 
             'process: for _ in 0..before {
                 let tx_info = staged.remove(0);
@@ -100,7 +98,7 @@ impl Server {
                         transactions.push(tx);
                     }
                     Err(e) => {
-                        last_error = Some(e);
+                        log::debug!(target: "nuts::network", "failed to process transaction '{}' in process loop: {}", repr, e);
                         staged.push(tx_info);
 
                         continue 'process;
@@ -114,10 +112,17 @@ impl Server {
 
             // We we're unable to process transactions anymore
             if before == staged.len() {
-                log::error!(target: "nuts::network", "failed to process the last '{}' transactions: {}", staged.len(), last_error.unwrap());
+                log::error!(target: "nuts::network", "failed to parse all encoded transactions, there are '{}' unprocessed transactions", staged.len());
                 break;
             }
         }
+
+        Ok(transactions)
+    }
+
+    pub fn handle_transaction_list(&mut self, transaction_list: TransactionList) -> Result<()> {
+        // First, parse all transactions
+        let mut transactions = self.parse_transaction_list(transaction_list)?;
 
         // Then, verify if we have a root transaction or that we can get it from another node
         if self.graph.root().is_none() {

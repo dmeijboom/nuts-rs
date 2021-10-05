@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Formatter};
-use std::sync::mpsc::channel;
 
 use anyhow::{anyhow, Result};
 use daggy::{Dag, NodeIndex, Walker};
@@ -74,17 +73,13 @@ impl Graph {
         Ok(graph)
     }
 
-    pub fn to_vec(&self) -> Result<Vec<Transaction>> {
-        let (sender, receiver) = channel();
+    pub fn walk(&self, predicate: impl Fn(&Transaction)) {
+        let _: Option<()> = walk_recursive(&self.dag, 0.into(), |tx, _| {
+            predicate(tx);
 
-        if let Some(e) = walk_recursive(&self.dag, 0.into(), |tx, _| {
-            // Returning none here means that we will walk the entire DAG
-            sender.send(tx.clone()).err()
-        }) {
-            return Err(anyhow::anyhow!(e));
-        }
-
-        Ok(receiver.iter().collect::<Vec<_>>())
+            // Keep walking the entire DAG
+            None
+        });
     }
 
     pub fn root(&self) -> Option<&Transaction> {
@@ -102,6 +97,10 @@ impl Graph {
             }),
             None => None,
         }
+    }
+
+    pub fn get(&self, id: &Hash) -> Option<&Transaction> {
+        self.find(id).and_then(|id| self.dag.node_weight(id))
     }
 
     pub fn add(&mut self, tx: Transaction) -> Result<NodeIndex<u32>> {

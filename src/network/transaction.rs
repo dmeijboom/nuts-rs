@@ -113,15 +113,8 @@ struct TransactionHeader {
 impl CompactJson for TransactionHeader {}
 
 fn parse_key(header: &Header<TransactionHeader>) -> Result<(Option<Key>, String)> {
-    Ok(match &header.registered.key_id {
-        Some(key_id) => (None, key_id.clone()),
-        None => {
-            let key = header.registered.web_key.clone().ok_or_else(|| {
-                ParseError::NutsValidationError(
-                    "unable to add transaction without key or key ID".to_string(),
-                )
-            })?;
-
+    Ok(match &header.registered.web_key {
+        Some(key) => {
             // Get the key ID either from the key itself or the from the key ID header
             let key_id = key
                 .common
@@ -134,7 +127,16 @@ fn parse_key(header: &Header<TransactionHeader>) -> Result<(Option<Key>, String)
                     )
                 })?;
 
-            (Some(key), key_id)
+            (Some(key.clone()), key_id)
+        }
+        None => {
+            let key_id = header.registered.key_id.clone().ok_or_else(|| {
+                ParseError::NutsValidationError(
+                    "unable to add transaction without key or key ID".to_string(),
+                )
+            })?;
+
+            (None, key_id)
         }
     })
 }

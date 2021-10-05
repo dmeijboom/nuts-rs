@@ -21,7 +21,7 @@ async fn list_keys(db: Db) -> Result<()> {
     let jwk_set = store.as_ref();
 
     for key in jwk_set.keys.iter() {
-        println!("- {}", key.common.key_id.as_ref().unwrap());
+        println!("{}", key.common.key_id.as_ref().unwrap());
     }
 
     Ok(())
