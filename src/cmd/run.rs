@@ -1,11 +1,17 @@
 use anyhow::Result;
+use clap::Clap;
+use sled::Db;
 use tokio::fs;
 use tonic::transport::{Certificate, Identity};
 
 use crate::network::Server;
 
-pub async fn cmd(bootstrap_node: Vec<String>) -> Result<()> {
-    let db = sled::open(".nuts")?;
+#[derive(Clap)]
+pub struct Opts {
+    bootstrap_node: Vec<String>,
+}
+
+pub async fn cmd(db: Db, opts: Opts) -> Result<()> {
     let ca_pem = fs::read("tls/truststore.pem").await?;
     let ca = Certificate::from_pem(ca_pem);
     let (cert, key) = (
@@ -15,7 +21,7 @@ pub async fn cmd(bootstrap_node: Vec<String>) -> Result<()> {
     let identity = Identity::from_pem(cert, key);
     let mut server = Server::new(db, ca, identity)?;
 
-    for addr in bootstrap_node {
+    for addr in opts.bootstrap_node {
         server.connect_to_peer(addr).await?;
     }
 
